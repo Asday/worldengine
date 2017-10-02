@@ -10,9 +10,9 @@ class TemperatureSimulation(object):
         return not world.has_temperature()
 
     def execute(self, world, seed):
-        e = world.elevation['data']
+        e = world.layers['elevation'].data
         ml = world.start_mountain_th()  # returns how many percent of the world are mountains
-        ocean = world.ocean
+        ocean = world.layers['ocean'].data
 
         t = self._calculate(world, seed, e, ml)
         t_th = [
@@ -24,7 +24,7 @@ class TemperatureSimulation(object):
             ('subtropical', find_threshold_f(t, world.temps[5], ocean)),
             ('tropical', None)
         ]
-        world.set_temperature(t, t_th)
+        world.temperature = (t, t_th)
 
     @staticmethod
     def _calculate(world, seed, elevation, mountain_level):

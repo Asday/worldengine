@@ -1,11 +1,11 @@
 import numpy
 
+
 class BiomeSimulation(object):
 
     @staticmethod
     def is_applicable(world):
-        return world.has_humidity() and world.has_temperature() and \
-            (not world.has_biome())
+        return world.has_humidity() and world.has_temperature() and not world.has_biome()
 
     @staticmethod
     def execute(world, seed):
@@ -13,7 +13,7 @@ class BiomeSimulation(object):
         w = world
         width = world.width
         height = world.height
-        ocean = world.ocean
+        ocean = world.layers['ocean'].data
         cm = {}
         biome_cm = {}
         biome = numpy.zeros((height, width), dtype = object)#this is still kind of expensive memory-wise
@@ -112,5 +112,5 @@ class BiomeSimulation(object):
                 if not biome[y, x] in biome_cm:
                     biome_cm[biome[y, x]] = 0
                 biome_cm[biome[y, x]] += 1
-        w.set_biome(biome)
+        w.biome = biome
         return cm, biome_cm

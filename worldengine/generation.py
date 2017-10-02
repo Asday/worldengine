@@ -1,5 +1,8 @@
+import numpy
+
 from noise import snoise2
-from worldengine.world import Step
+
+from worldengine.model.world import Step
 from worldengine.simulations.basic import find_threshold_f
 from worldengine.simulations.hydrology import WatermapSimulation
 from worldengine.simulations.irrigation import IrrigationSimulation
@@ -11,7 +14,6 @@ from worldengine.simulations.precipitation import PrecipitationSimulation
 from worldengine.simulations.biome import BiomeSimulation
 from worldengine.simulations.icecap import IcecapSimulation
 from worldengine.common import anti_alias, get_verbose
-import numpy
 
 
 # ------------------
@@ -22,19 +24,19 @@ def center_land(world):
     """Translate the map horizontally and vertically to put as much ocean as
        possible at the borders. It operates on elevation and plates map"""
 
-    y_sums = world.elevation['data'].sum(1)  # 1 == sum along x-axis
+    y_sums = world.layers['elevation'].data.sum(1)  # 1 == sum along x-axis
     y_with_min_sum = y_sums.argmin()
     if get_verbose():
         print("geo.center_land: height complete")
 
-    x_sums = world.elevation['data'].sum(0)  # 0 == sum along y-axis
+    x_sums = world.layers['elevation'].data.sum(0)  # 0 == sum along y-axis
     x_with_min_sum = x_sums.argmin()
     if get_verbose():
         print("geo.center_land: width complete")
 
     latshift = 0
-    world.elevation['data'] = numpy.roll(numpy.roll(world.elevation['data'], -y_with_min_sum + latshift, axis=0), -x_with_min_sum, axis=1)
-    world.plates = numpy.roll(numpy.roll(world.plates, -y_with_min_sum + latshift, axis=0), -x_with_min_sum, axis=1)
+    world.layers['elevation'].data = numpy.roll(numpy.roll(world.layers['elevation'].data, -y_with_min_sum + latshift, axis=0), - x_with_min_sum, axis=1)
+    world.layers['plates'].data = numpy.roll(numpy.roll(world.layers['plates'].data, -y_with_min_sum + latshift, axis=0), - x_with_min_sum, axis=1)
     if get_verbose():
         print("geo.center_land: width complete")
 
@@ -47,8 +49,8 @@ def place_oceans_at_map_borders(world):
     ocean_border = int(min(30, max(world.width / 5, world.height / 5)))
 
     def place_ocean(x, y, i):
-        world.elevation['data'][y, x] = \
-            (world.elevation['data'][y, x] * i) / ocean_border
+        world.layers['elevation'].data[y, x] = \
+            (world.layers['elevation'].data[y, x] * i) / ocean_border
 
     for x in range(world.width):
         for i in range(ocean_border):
@@ -67,7 +69,7 @@ def add_noise_to_elevation(world, seed):
     for y in range(world.height):
         for x in range(world.width):
             n = snoise2(x / freq * 2, y / freq * 2, octaves, base=seed)
-            world.elevation['data'][y, x] += n
+            world.layers['elevation'].data[y, x] += n
 
 
 def fill_ocean(elevation, sea_level):#TODO: Make more use of numpy?
@@ -103,7 +105,7 @@ def initialize_ocean_and_thresholds(world, ocean_level=1.0):
     :param ocean_level: the elevation representing the ocean level
     :return: nothing, the world will be changed
     """
-    e = world.elevation['data']
+    e = world.layers['elevation'].data
     ocean = fill_ocean(e, ocean_level)
     hl = find_threshold_f(e, 0.10)  # the highest 10% of all (!) land are declared hills
     ml = find_threshold_f(e, 0.03)  # the highest 3% are declared mountains
@@ -112,8 +114,8 @@ def initialize_ocean_and_thresholds(world, ocean_level=1.0):
             ('hill', ml),
             ('mountain', None)]
     harmonize_ocean(ocean, e, ocean_level)
-    world.set_ocean(ocean)
-    world.set_elevation(e, e_th)
+    world.ocean = ocean
+    world.elevation = (e, e_th)
     world.sea_depth = sea_depth(world, ocean_level)
 
 
@@ -139,24 +141,56 @@ def harmonize_ocean(ocean, elevation, ocean_level):
 # ----
 
 def sea_depth(world, sea_level):
-    sea_depth = sea_level - world.elevation['data']
+
+    # a dynamic programming approach to gather how far the next land is 
+    # from a given coordinate up to a maximum distance of max_radius
+    # result is 0 for land coordinates and -1 for coordinates further than
+    # max_radius away from land
+    # there might be even faster ways but it does the trick
+
+    def next_land_dynamic(ocean, max_radius=5):
+    
+        next_land = numpy.full(ocean.shape, -1, int)
+
+        # non ocean tiles are zero distance away from next land
+        next_land[numpy.logical_not(ocean)]=0
+
+        height, width = ocean.shape
+
+        for dist in range(max_radius):
+            indices = numpy.transpose(numpy.where(next_land==dist))
+            for y, x in indices:
+                for dy in range(-1, 2):
+                    ny = y + dy
+                    if 0 <= ny < height:
+                        for dx in range(-1, 2):
+                            nx = x + dx
+                            if 0 <= nx < width:
+                                if next_land[ny,nx] == -1:
+                                    next_land[ny,nx] = dist + 1
+        return next_land
+
+    # We want to multiply the raw sea_depth by one of these factors 
+    # depending on the distance from the next land
+    # possible TODO: make this a parameter
+    factors = [0.0, 0.3, 0.5, 0.7, 0.9]
+
+    next_land = next_land_dynamic(world.layers['ocean'].data)
+
+    sea_depth = sea_level - world.layers['elevation'].data
+
     for y in range(world.height):
         for x in range(world.width):
-            if world.tiles_around((x, y), radius=1, predicate=world.is_land):
-                sea_depth[y, x] = 0
-            elif world.tiles_around((x, y), radius=2, predicate=world.is_land):
-                sea_depth[y, x] *= 0.3
-            elif world.tiles_around((x, y), radius=3, predicate=world.is_land):
-                sea_depth[y, x] *= 0.5
-            elif world.tiles_around((x, y), radius=4, predicate=world.is_land):
-                sea_depth[y, x] *= 0.7
-            elif world.tiles_around((x, y), radius=5, predicate=world.is_land):
-                sea_depth[y, x] *= 0.9
+            dist_to_next_land = next_land[y,x]
+            if dist_to_next_land > 0:
+                sea_depth[y,x]*=factors[dist_to_next_land-1]
+
     sea_depth = anti_alias(sea_depth, 10)
 
     min_depth = sea_depth.min()
     max_depth = sea_depth.max()
     sea_depth = (sea_depth - min_depth) / (max_depth - min_depth)
+
     return sea_depth
 
 
