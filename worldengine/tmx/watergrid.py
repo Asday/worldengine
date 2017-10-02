@@ -1,5 +1,5 @@
 import numpy
-from basic import *
+from .basic import *
 
 
 def _water_cell_grid(world, pos):
@@ -113,5 +113,3 @@ def generate_water_grid(world):
 
     _clean_water_grid(water_grid)
     return water_grid
-
-

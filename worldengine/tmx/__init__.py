@@ -1,9 +1,9 @@
 from worldengine.biome import *
 
 import numpy
-from watergrid import WG_OCEAN, WG_LAND, WG_RIVER
-from watergrid import generate_water_grid
-from basic import *
+from .watergrid import WG_OCEAN, WG_LAND, WG_RIVER
+from .watergrid import generate_water_grid
+from .basic import *
 
 TOCEAN = 366
 TLAND  = 244
@@ -693,4 +693,3 @@ def export_to_tmx(world, tmx_filename):
 
     tmx_file.write('</map>\n')
     tmx_file.close()
-
